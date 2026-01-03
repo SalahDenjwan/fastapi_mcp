@@ -19,7 +19,6 @@ from fastapi_mcp.errors import (
     ToolTimeoutError,
     ToolCancelledError,
     InvalidParametersError,
-    format_error_for_client,
 )
 
 import logging
@@ -182,7 +181,8 @@ class FastApiMCP:
                             f"Extracted HTTP request info from context: {http_request_info.method} {http_request_info.path}"
                         )
             except (LookupError, AttributeError) as e:
-                logger.error(f"Could not extract HTTP request info from context: {e}")
+                # This is expected when running without HTTP context (e.g., direct MCP connections)
+                logger.debug(f"No HTTP request context available: {e}")
 
             return await self._execute_api_tool(
                 client=self._http_client,
