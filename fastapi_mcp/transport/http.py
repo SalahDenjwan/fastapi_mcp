@@ -1,3 +1,16 @@
+"""
+HTTP transport for MCP server.
+
+This module provides a FastAPI-native wrapper around the MCP StreamableHTTPSessionManager.
+It handles the conversion between FastAPI's Request/Response objects and the ASGI
+interface expected by the MCP session manager.
+
+Error Handling:
+    - asyncio.CancelledError -> 499 (Client Closed Request)
+    - asyncio.TimeoutError -> 504 (Gateway Timeout)
+    - Other exceptions -> 500 (Internal Server Error) with generic message
+"""
+
 import logging
 import asyncio
 
@@ -6,14 +19,26 @@ from mcp.server.lowlevel.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager, EventStore
 from mcp.server.transport_security import TransportSecuritySettings
 
-from fastapi_mcp.errors import InternalError, TransportError
 
 logger = logging.getLogger(__name__)
 
 
 class FastApiHttpSessionManager:
     """
-    FastAPI-native wrapper around StreamableHTTPSessionManager
+    FastAPI-native wrapper around StreamableHTTPSessionManager.
+
+    This class adapts the MCP StreamableHTTPSessionManager for use with FastAPI.
+    It lazily initializes the session manager on first request and handles the
+    conversion between FastAPI's request/response model and ASGI primitives.
+
+    The lazy initialization ensures the session manager is started in the correct
+    async context (within a request handler) rather than during application startup.
+
+    Attributes:
+        mcp_server: The MCP Server instance to handle tool calls.
+        event_store: Optional event store for session persistence.
+        json_response: Whether to use JSON response format (default: True).
+        security_settings: Optional transport security settings.
     """
 
     def __init__(

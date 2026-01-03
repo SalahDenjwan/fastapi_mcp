@@ -1,3 +1,21 @@
+"""
+SSE (Server-Sent Events) transport for MCP server.
+
+This module provides a FastAPI-native implementation of SSE message handling
+for the MCP protocol. It extends the base SseServerTransport to integrate
+properly with FastAPI's request/response lifecycle.
+
+Error Handling:
+    - Missing session_id -> 400 (Bad Request)
+    - Invalid session_id format -> 400 (Bad Request)
+    - Session not found -> 404 (Not Found)
+    - Invalid JSON-RPC message -> 400 + JSON-RPC error via SSE stream
+    - Message send failures -> Logged but not propagated (fire-and-forget)
+
+The message handling uses FastAPI's BackgroundTasks to avoid blocking the
+HTTP response while ensuring messages are delivered through the SSE stream.
+"""
+
 from uuid import UUID
 import logging
 from typing import Union
@@ -9,8 +27,6 @@ from mcp.shared.message import SessionMessage, ServerMessageMetadata
 from pydantic import ValidationError
 from mcp.server.sse import SseServerTransport
 from mcp.types import JSONRPCMessage, JSONRPCError, ErrorData
-
-from fastapi_mcp.errors import SessionNotFoundError, SessionInvalidError, TransportError
 
 
 logger = logging.getLogger(__name__)
@@ -91,8 +107,20 @@ class FastApiSseTransport(SseServerTransport):
 
     async def _send_message_safely(
         self, writer: MemoryObjectSendStream[SessionMessage], message: Union[SessionMessage, ValidationError]
-    ):
-        """Send a message to the writer, avoiding ASGI race conditions"""
+    ) -> None:
+        """
+        Send a message to the writer, avoiding ASGI race conditions.
+
+        This method is designed to be called from a BackgroundTask. It handles
+        two types of messages:
+        1. SessionMessage: Forwarded directly to the SSE stream
+        2. ValidationError: Converted to a JSON-RPC error and sent to the stream
+
+        Errors during sending are logged but not propagated because:
+        - The HTTP response has already been sent (202 Accepted)
+        - Propagating would have no effect on the client
+        - The SSE stream may have been closed by the client
+        """
 
         try:
             logger.debug(f"Sending message to writer from background task: {message}")
