@@ -6,6 +6,8 @@ from mcp.server.lowlevel.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager, EventStore
 from mcp.server.transport_security import TransportSecuritySettings
 
+from fastapi_mcp.errors import InternalError, TransportError
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,7 +90,8 @@ class FastApiHttpSessionManager:
         await self._ensure_session_manager_started()
 
         if not self._session_manager:
-            raise HTTPException(status_code=500, detail="Session manager not initialized")
+            logger.error("Session manager not initialized when handling request")
+            raise HTTPException(status_code=500, detail="MCP server not ready")
 
         logger.debug(f"Handling FastAPI request: {request.method} {request.url.path}")
 
@@ -121,9 +124,16 @@ class FastApiHttpSessionManager:
                 headers=headers_dict,
             )
 
-        except Exception:
-            logger.exception("Error in StreamableHTTPSessionManager")
-            raise HTTPException(status_code=500, detail="Internal server error")
+        except asyncio.CancelledError:
+            logger.info("Request was cancelled")
+            raise HTTPException(status_code=499, detail="Request cancelled")
+        except asyncio.TimeoutError:
+            logger.warning("Request timed out")
+            raise HTTPException(status_code=504, detail="Request timed out")
+        except Exception as e:
+            # Log the full exception for debugging but return a generic message
+            logger.exception("Error processing MCP request")
+            raise HTTPException(status_code=500, detail="MCP request processing failed")
 
     async def shutdown(self) -> None:
         """Clean up the session manager and background task."""

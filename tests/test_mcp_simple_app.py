@@ -99,7 +99,7 @@ async def test_call_tool_raise_error(lowlevel_server_simple_app: Server):
 
         text_content = next(c for c in response.content if isinstance(c, types.TextContent))
         assert "500" in text_content.text
-        assert "internal server error" in text_content.text.lower()
+        assert "raise_error" in text_content.text.lower()  # Tool name should be in the error
 
 
 @pytest.mark.asyncio
@@ -186,7 +186,7 @@ async def test_call_tool_get_item_not_found(lowlevel_server_simple_app: Server):
 
         text_content = next(c for c in response.content if isinstance(c, types.TextContent))
         assert "404" in text_content.text
-        assert "not found" in text_content.text.lower()
+        assert "get_item" in text_content.text.lower()  # Tool name should be in the error
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,7 @@ async def test_handle_post_message_missing_session_id(mock_transport: FastApiSse
         await mock_transport.handle_fastapi_post_message(mock_request)
 
     assert excinfo.value.status_code == 400
-    assert "session_id is required" in excinfo.value.detail
+    assert "session_id" in excinfo.value.detail
 
 
 @pytest.mark.anyio
@@ -74,7 +74,7 @@ async def test_handle_post_message_session_not_found(
         await mock_transport.handle_fastapi_post_message(mock_request)
 
     assert excinfo.value.status_code == 404
-    assert "Could not find session" in excinfo.value.detail
+    assert "Session not found" in excinfo.value.detail
 
 
 @pytest.mark.anyio
@@ -128,7 +128,7 @@ async def test_handle_post_message_general_exception(
             await mock_transport.handle_fastapi_post_message(mock_request)
 
         assert excinfo.value.status_code == 400
-        assert "Invalid request body" in excinfo.value.detail
+        assert "parse" in excinfo.value.detail.lower()
 
 
 @pytest.mark.anyio

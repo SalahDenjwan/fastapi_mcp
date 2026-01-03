@@ -14,10 +14,39 @@ except Exception:  # pragma: no cover
 
 from .server import FastApiMCP
 from .types import AuthConfig, OAuthMetadata
+from .errors import (
+    MCPErrorCode,
+    MCPToolError,
+    ToolNotFoundError,
+    ToolExecutionError,
+    ToolTimeoutError,
+    ToolCancelledError,
+    InvalidParametersError,
+    MissingParameterError,
+    SessionNotFoundError,
+    SessionInvalidError,
+    TransportError,
+    InternalError,
+    ConfigurationError,
+)
 
 
 __all__ = [
     "FastApiMCP",
     "AuthConfig",
     "OAuthMetadata",
+    # Error types
+    "MCPErrorCode",
+    "MCPToolError",
+    "ToolNotFoundError",
+    "ToolExecutionError",
+    "ToolTimeoutError",
+    "ToolCancelledError",
+    "InvalidParametersError",
+    "MissingParameterError",
+    "SessionNotFoundError",
+    "SessionInvalidError",
+    "TransportError",
+    "InternalError",
+    "ConfigurationError",
 ]

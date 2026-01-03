@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from mcp.server.sse import SseServerTransport
 from mcp.types import JSONRPCMessage, JSONRPCError, ErrorData
 
+from fastapi_mcp.errors import SessionNotFoundError, SessionInvalidError, TransportError
+
 
 logger = logging.getLogger(__name__)
 
@@ -39,19 +41,19 @@ class FastApiSseTransport(SseServerTransport):
         session_id_param = request.query_params.get("session_id")
         if session_id_param is None:
             logger.warning("Received request without session_id")
-            raise HTTPException(status_code=400, detail="session_id is required")
+            raise HTTPException(status_code=400, detail="Missing required parameter: session_id")
 
         try:
             session_id = UUID(hex=session_id_param)
             logger.debug(f"Parsed session ID: {session_id}")
         except ValueError:
             logger.warning(f"Received invalid session ID: {session_id_param}")
-            raise HTTPException(status_code=400, detail="Invalid session ID")
+            raise HTTPException(status_code=400, detail="Invalid session ID format")
 
         writer = self._read_stream_writers.get(session_id)
         if not writer:
             logger.warning(f"Could not find session for ID: {session_id}")
-            raise HTTPException(status_code=404, detail="Could not find session")
+            raise HTTPException(status_code=404, detail="Session not found or expired")
 
         body = await request.body()
         logger.debug(f"Received JSON: {body.decode()}")
@@ -65,12 +67,15 @@ class FastApiSseTransport(SseServerTransport):
             # Create background task to send error
             background_tasks = BackgroundTasks()
             background_tasks.add_task(self._send_message_safely, writer, err)
-            response = JSONResponse(content={"error": "Could not parse message"}, status_code=400)
+            response = JSONResponse(
+                content={"error": "Invalid JSON-RPC message format"},
+                status_code=400,
+            )
             response.background = background_tasks
             return response
         except Exception as e:
             logger.error(f"Error processing request body: {e}")
-            raise HTTPException(status_code=400, detail="Invalid request body")
+            raise HTTPException(status_code=400, detail="Failed to parse request body")
 
         # Create background task to send message with proper request context metadata
         background_tasks = BackgroundTasks()
@@ -93,11 +98,11 @@ class FastApiSseTransport(SseServerTransport):
             logger.debug(f"Sending message to writer from background task: {message}")
 
             if isinstance(message, ValidationError):
-                # Convert ValidationError to JSONRPCError
+                # Convert ValidationError to JSONRPCError with clear messaging
                 error_data = ErrorData(
                     code=-32700,  # Parse error code in JSON-RPC
-                    message="Parse error",
-                    data={"validation_error": str(message)},
+                    message="Invalid JSON-RPC message format",
+                    data={"details": "The request body could not be parsed as a valid JSON-RPC message"},
                 )
                 json_rpc_error = JSONRPCError(
                     jsonrpc="2.0",
@@ -109,4 +114,5 @@ class FastApiSseTransport(SseServerTransport):
             else:
                 await writer.send(message)
         except Exception as e:
-            logger.error(f"Error sending message to writer: {e}")
+            # Log the error but don't propagate - the message is already being handled
+            logger.error(f"Failed to send message through SSE transport: {e}")

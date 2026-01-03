@@ -1,3 +1,4 @@
+import asyncio
 import json
 import httpx
 from typing import Dict, Optional, Any, List, Union, Literal, Sequence
@@ -12,6 +13,14 @@ from fastapi_mcp.openapi.convert import convert_openapi_to_mcp_tools
 from fastapi_mcp.transport.sse import FastApiSseTransport
 from fastapi_mcp.transport.http import FastApiHttpSessionManager
 from fastapi_mcp.types import HTTPRequestInfo, AuthConfig
+from fastapi_mcp.errors import (
+    ToolNotFoundError,
+    ToolExecutionError,
+    ToolTimeoutError,
+    ToolCancelledError,
+    InvalidParametersError,
+    format_error_for_client,
+)
 
 import logging
 
@@ -499,7 +508,7 @@ class FastApiMCP:
             The result as MCP content types
         """
         if tool_name not in operation_map:
-            raise Exception(f"Unknown tool: {tool_name}")
+            raise ToolNotFoundError(tool_name)
 
         operation = operation_map[tool_name]
         path: str = operation["path"]
@@ -511,7 +520,10 @@ class FastApiMCP:
             if param.get("in") == "path" and param.get("name") in arguments:
                 param_name = param.get("name", None)
                 if param_name is None:
-                    raise ValueError(f"Parameter name is None for parameter: {param}")
+                    raise InvalidParametersError(
+                        "Parameter definition missing name",
+                        tool_name=tool_name,
+                    )
                 path = path.replace(f"{{{param_name}}}", str(arguments.pop(param_name)))
 
         query = {}
@@ -519,7 +531,10 @@ class FastApiMCP:
             if param.get("in") == "query" and param.get("name") in arguments:
                 param_name = param.get("name", None)
                 if param_name is None:
-                    raise ValueError(f"Parameter name is None for parameter: {param}")
+                    raise InvalidParametersError(
+                        "Parameter definition missing name",
+                        tool_name=tool_name,
+                    )
                 query[param_name] = arguments.pop(param_name)
 
         headers = {}
@@ -527,7 +542,10 @@ class FastApiMCP:
             if param.get("in") == "header" and param.get("name") in arguments:
                 param_name = param.get("name", None)
                 if param_name is None:
-                    raise ValueError(f"Parameter name is None for parameter: {param}")
+                    raise InvalidParametersError(
+                        "Parameter definition missing name",
+                        tool_name=tool_name,
+                    )
                 headers[param_name] = arguments.pop(param_name)
 
         # Forward headers that are in the allowlist
@@ -556,8 +574,11 @@ class FastApiMCP:
             # If not raising an exception, the MCP server will return the result as a regular text response, without marking it as an error.
             # TODO: Use a raise_for_status() method on the response (it needs to also be implemented in the AsyncClientProtocol)
             if 400 <= response.status_code < 600:
-                raise Exception(
-                    f"Error calling {tool_name}. Status code: {response.status_code}. Response: {response.text}"
+                raise ToolExecutionError(
+                    f"Request failed with status {response.status_code}",
+                    tool_name=tool_name,
+                    status_code=response.status_code,
+                    details=response.text if hasattr(response, "text") else None,
                 )
 
             try:
@@ -565,9 +586,22 @@ class FastApiMCP:
             except ValueError:
                 return [types.TextContent(type="text", text=result_text)]
 
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout calling tool: {tool_name}")
+            raise ToolTimeoutError(tool_name=tool_name)
+        except asyncio.CancelledError:
+            logger.info(f"Tool execution cancelled: {tool_name}")
+            raise ToolCancelledError(tool_name=tool_name)
+        except (ToolNotFoundError, ToolExecutionError, ToolTimeoutError, ToolCancelledError, InvalidParametersError):
+            # Re-raise MCP errors as-is
+            raise
         except Exception as e:
-            logger.exception(f"Error calling {tool_name}")
-            raise e
+            logger.exception(f"Error calling tool: {tool_name}")
+            # Wrap unexpected errors in ToolExecutionError to provide consistent format
+            raise ToolExecutionError(
+                "Tool execution failed",
+                tool_name=tool_name,
+            ) from e
 
     async def _request(
         self,
@@ -589,7 +623,7 @@ class FastApiMCP:
         elif method.lower() == "patch":
             return await client.patch(path, params=query, headers=headers, json=body)
         else:
-            raise ValueError(f"Unsupported HTTP method: {method}")
+            raise InvalidParametersError(f"Unsupported HTTP method: {method}")
 
     def _filter_tools(self, tools: List[types.Tool], openapi_schema: Dict[str, Any]) -> List[types.Tool]:
         """
