@@ -155,7 +155,7 @@ class FastApiHttpSessionManager:
         except asyncio.TimeoutError:
             logger.warning("Request timed out")
             raise HTTPException(status_code=504, detail="Request timed out")
-        except Exception as e:
+        except Exception:
             # Log the full exception for debugging but return a generic message
             logger.exception("Error processing MCP request")
             raise HTTPException(status_code=500, detail="MCP request processing failed")

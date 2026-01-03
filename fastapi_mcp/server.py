@@ -19,7 +19,6 @@ from fastapi_mcp.errors import (
     ToolTimeoutError,
     ToolCancelledError,
     InvalidParametersError,
-    format_error_for_client,
 )
 
 import logging
